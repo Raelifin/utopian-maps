@@ -1,0 +1,105 @@
+<!DOCTYPE html> 
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Map of Belgium</title>
+  <style>
+    html,body { margin:0; padding:0; height:100%; width:100%; }
+    svg { display:block; width:100%; height:100%; }
+  </style>
+  <!-- Core D3 and extras -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4/dist/d3-geo-projection.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson@3/dist/topojson.min.js"></script>
+</head>
+<body>
+<svg></svg>
+<script>
+// This was vibe-coded don't @ me.
+
+const p0 = [4.668056, 50.641111];
+const R_EARTH_KM = 6371;
+const STEP_KM = 54.72;
+const GRID_RANGE = 3;
+
+const twoPi = 2*Math.PI;
+const kmToRad = km => km / R_EARTH_KM;
+const kmToDeg = km => kmToRad(km) * (180/Math.PI);
+
+// Destination point given start, bearing (deg) and distance (km)
+function destination(lon, lat, brngDeg, distKm) {
+  const δ = kmToRad(distKm);               // angular distance in rad
+  const θ = brngDeg * Math.PI/180;         // bearing to rad
+  const φ1 = lat * Math.PI/180;
+  const λ1 = lon * Math.PI/180;
+  const sinφ1 = Math.sin(φ1), cosφ1 = Math.cos(φ1);
+  const sinδ = Math.sin(δ), cosδ = Math.cos(δ);
+  const sinφ2 = sinφ1*cosδ + cosφ1*sinδ*Math.cos(θ);
+  const φ2 = Math.asin(sinφ2);
+  const y = Math.sin(θ)*sinδ*cosφ1;
+  const x = cosδ - sinφ1*sinφ2;
+  const λ2 = λ1 + Math.atan2(y, x);
+  return [ (λ2*180/Math.PI+540)%360-180, φ2*180/Math.PI ]; // lon wrap −180…180
+}
+
+// Compute grid offsets as (dx,dy) where +x east, +y north
+const offsets = [];
+for(let j=-GRID_RANGE;j<=GRID_RANGE;j++){
+  for(let i=-GRID_RANGE;i<=GRID_RANGE;i++){
+    offsets.push([i,j]);
+  }
+}
+
+// Pre‑compute destination coords for each offset
+const gridPoints = offsets.map(([dx,dy]) => {
+  const dist = Math.hypot(dx,dy)*STEP_KM;
+  if(dist === 0) return {lon:p0[0], lat:p0[1], dx,dy};
+  const angleRad = Math.atan2(dy,dx);          // rad, 0 = +X (east)
+  const bearingDeg = (90 - angleRad*180/Math.PI + 360) % 360; // convert to compass (0=N)
+  const [lon,lat] = destination(p0[0], p0[1], bearingDeg, dist);
+  return {lon,lat,dx,dy};
+});
+
+const width  = window.innerWidth;
+const height = window.innerHeight;
+const svg = d3.select("svg").attr("viewBox", [0, 0, width, height]);
+
+const projection = d3.geoAzimuthalEquidistant()
+  .rotate([-p0[0],-p0[1]])
+  .scale(1000)
+  .translate([width / 2, height / 2]);
+
+const path = d3.geoPath(projection);
+const g = svg.append("g");
+
+const WORLD = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-10m.json";
+
+d3.json(WORLD).then(world => {
+
+  g.append("path")
+    .datum({type: "Sphere"})
+    .attr("d", path)
+    .attr("fill", "#000")
+    .lower();
+
+  g.append("path")
+    .attr("d", path(topojson.feature(world, world.objects.countries)))
+    .attr("fill", "#005")
+    .attr("fill-rule", "evenodd")
+    .attr("stroke", "#888")
+    .attr("stroke-width", 1.5);
+
+  g.selectAll("path.grid-point")
+    .data(gridPoints)
+    .enter().append("path")
+      .attr("class", "grid-point")
+      .attr("d", d3.symbol()
+                .type(d3.symbolCross)
+                .size(20))
+      .attr("fill", "#FDDA24")
+      .attr("transform", d => "translate(" + projection([d.lon, d.lat]) + ")");
+
+});
+</script>
+</body>
+</html>
